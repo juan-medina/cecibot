@@ -26,10 +26,13 @@ type Bot interface {
 
 var errInvalidDiscordClient = errors.New("invalid discord client")
 
+type waitFunc func()
+
 type bot struct {
 	cfg     config.Config
 	discord discordClient
 	prc     processor.Processor
+	wait    waitFunc
 }
 
 func New(cfg config.Config) (Bot, error) {
@@ -46,6 +49,7 @@ func New(cfg config.Config) (Bot, error) {
 	}
 
 	bot.discord = discord
+	bot.wait = bot.waitToSignalClose
 	return bot, nil
 }
 
@@ -56,9 +60,17 @@ func (b *bot) connect() error {
 	log.Info("Bot is connecting.")
 
 	log.Info("Open connection to discord.")
-	err := b.discord.Open()
-	if err != nil {
+
+	var err error
+
+	if b.discord == nil {
+		err = errInvalidDiscordClient
 		return err
+	} else {
+		err = b.discord.Open()
+		if err != nil {
+			return err
+		}
 	}
 
 	log.Info("Bot is connected")
@@ -116,7 +128,7 @@ func (b bot) Run() error {
 
 	log.Info("Bot started.")
 
-	b.waitToSignalClose()
+	b.wait()
 
 	log.Info("Bot ending.")
 

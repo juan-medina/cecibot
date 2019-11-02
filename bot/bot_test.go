@@ -3,8 +3,6 @@ package bot
 import (
 	"errors"
 	"github.com/bwmarrin/discordgo"
-	"github.com/juan-medina/cecibot/processor"
-	"reflect"
 	"testing"
 )
 
@@ -19,14 +17,29 @@ func (f fakeCfg) GetToken() string {
 	return "12345"
 }
 
+type badCfg struct {
+}
+
+func (b badCfg) GetOwner() string {
+	return ""
+}
+
+func (b badCfg) GetToken() string {
+	return ""
+}
+
 var fakeError = errors.New("fake error")
 
 type FakeDiscordClientSpy struct {
-	failOnOpen  bool
-	failOnClose bool
-	failure     bool
-	lastError   error
-	lastMethod  string
+	failOnOpen               bool
+	failOnClose              bool
+	failOnChannelMessageSend bool
+	failOnAddHandler         bool
+	failure                  bool
+	lastError                error
+	lastMethod               string
+	lastMessage              string
+	lastChannelTo            string
 }
 
 func (f *FakeDiscordClientSpy) recordError(method string, err error) error {
@@ -59,11 +72,61 @@ func (f *FakeDiscordClientSpy) Close() error {
 }
 
 func (f *FakeDiscordClientSpy) AddHandler(interface{}) func() {
+	if f.failOnAddHandler {
+		_ = f.recordError("AddHandler()", fakeError)
+		return nil
+	}
+	f.recordSuccess("AddHandler()")
 	return nil
 }
 
 func (f *FakeDiscordClientSpy) ChannelMessageSend(channelID string, content string) (*discordgo.Message, error) {
+	if f.failOnChannelMessageSend {
+		return nil, f.recordError("ChannelMessageSend()", fakeError)
+	}
+	f.recordSuccess("ChannelMessageSend()")
+	f.lastMessage = content
+	f.lastChannelTo = channelID
 	return nil, nil
+}
+
+func assertSpySuccess(t *testing.T, spy *FakeDiscordClientSpy, method string) bool {
+	t.Helper()
+	if method != spy.lastMethod {
+		t.Errorf("want spy last method to be %q, got %q", method, spy.lastMethod)
+		return false
+	}
+	if spy.failure != false {
+		t.Errorf("want spy sucess what was failure")
+		return false
+	}
+
+	return true
+}
+
+func assertSpyFailure(t *testing.T, spy *FakeDiscordClientSpy, method string, err error) bool {
+	t.Helper()
+	if method != spy.lastMethod {
+		t.Errorf("want spy last method to be %q, got %q", method, spy.lastMethod)
+		return false
+	}
+	if spy.failure != true {
+		t.Errorf("want spy failure but was sucess")
+		return false
+	}
+	if spy.lastError != err {
+		t.Errorf("want spy last error to be %q, got %q", err, spy.lastError)
+		return false
+	}
+
+	return true
+}
+
+type fakeProcessor struct {
+}
+
+func (f fakeProcessor) ProcessMessage(text string, author string) string {
+	return author + " told me : " + text
 }
 
 func TestNew(t *testing.T) {
@@ -84,7 +147,7 @@ func TestNew(t *testing.T) {
 func Test_bot_connect(t *testing.T) {
 	cfg := fakeCfg{}
 	discord := &FakeDiscordClientSpy{}
-	prc := processor.New(cfg)
+	prc := fakeProcessor{}
 
 	b := &bot{
 		cfg:     cfg,
@@ -100,18 +163,7 @@ func Test_bot_connect(t *testing.T) {
 			return
 		}
 
-		want := &FakeDiscordClientSpy{
-			failOnOpen:  false,
-			failOnClose: false,
-			lastMethod:  "Open()",
-			lastError:   nil,
-			failure:     false,
-		}
-
-		if reflect.DeepEqual(discord, want) != true {
-			t.Errorf("spy fail want %v, got %v", want, discord)
-			return
-		}
+		assertSpySuccess(t, discord, "Open()")
 	})
 
 	t.Run("it should fail on connect", func(t *testing.T) {
@@ -128,16 +180,15 @@ func Test_bot_connect(t *testing.T) {
 			return
 		}
 
-		want := &FakeDiscordClientSpy{
-			failOnOpen:  true,
-			failOnClose: false,
-			lastMethod:  "Open()",
-			lastError:   fakeError,
-			failure:     true,
-		}
+		assertSpyFailure(t, discord, "Open()", fakeError)
+	})
 
-		if reflect.DeepEqual(discord, want) != true {
-			t.Errorf("spy fail want %v, got %v", want, discord)
+	t.Run("it should fail without client", func(t *testing.T) {
+		b.discord = nil
+		err := b.connect()
+
+		if err != errInvalidDiscordClient {
+			t.Errorf("want invalid discord client, got %v", err)
 			return
 		}
 	})
@@ -146,7 +197,7 @@ func Test_bot_connect(t *testing.T) {
 func Test_bot_disconnect(t *testing.T) {
 	cfg := fakeCfg{}
 	discord := &FakeDiscordClientSpy{}
-	prc := processor.New(cfg)
+	prc := fakeProcessor{}
 
 	b := &bot{
 		cfg:     cfg,
@@ -157,35 +208,377 @@ func Test_bot_disconnect(t *testing.T) {
 	t.Run("it should disconnect correctly", func(t *testing.T) {
 		b.disconnect()
 
-		want := &FakeDiscordClientSpy{
-			failOnOpen:  false,
-			failOnClose: false,
-			lastMethod:  "Close()",
-			lastError:   nil,
-			failure:     false,
-		}
-
-		if reflect.DeepEqual(discord, want) != true {
-			t.Errorf("spy fail want %v, got %v", want, discord)
-			return
-		}
+		assertSpySuccess(t, discord, "Close()")
 	})
 
 	t.Run("it should not fail on disconnect failure", func(t *testing.T) {
 		discord.failOnClose = true
 		b.disconnect()
 
-		want := &FakeDiscordClientSpy{
-			failOnOpen:  false,
-			failOnClose: true,
-			lastMethod:  "Close()",
-			lastError:   fakeError,
-			failure:     true,
+		assertSpyFailure(t, discord, "Close()", fakeError)
+	})
+
+	t.Run("it should not fail without client", func(t *testing.T) {
+		b.discord = nil
+		b.disconnect()
+	})
+}
+
+func Test_bot_sendMessage(t *testing.T) {
+	cfg := fakeCfg{}
+	discord := &FakeDiscordClientSpy{}
+	prc := fakeProcessor{}
+
+	b := &bot{
+		cfg:     cfg,
+		discord: discord,
+		prc:     prc,
+	}
+
+	t.Run("it should send message correctly", func(t *testing.T) {
+		b.sendMessage("chanel", "text")
+
+		assertSpySuccess(t, discord, "ChannelMessageSend()")
+	})
+
+	t.Run("it should fail sending message"+
+		"e", func(t *testing.T) {
+		discord.failOnChannelMessageSend = true
+		b.sendMessage("chanel", "text")
+
+		assertSpyFailure(t, discord, "ChannelMessageSend()", fakeError)
+	})
+}
+
+func Test_bot_Run(t *testing.T) {
+	noop := func() {}
+	cfg := fakeCfg{}
+	prc := fakeProcessor{}
+
+	t.Run("it should not fail", func(t *testing.T) {
+		discord := &FakeDiscordClientSpy{}
+
+		b := &bot{
+			cfg:     cfg,
+			discord: discord,
+			prc:     prc,
 		}
 
-		if reflect.DeepEqual(discord, want) != true {
-			t.Errorf("spy fail want %v, got %v", want, discord)
+		b.wait = noop
+		err := b.Run()
+
+		if err != nil {
+			t.Errorf("want not error, got %v", err)
 			return
 		}
 	})
+
+	t.Run("it should fail on failure on open", func(t *testing.T) {
+		discord := &FakeDiscordClientSpy{}
+		discord.failOnOpen = true
+		b := &bot{
+			cfg:     cfg,
+			discord: discord,
+			prc:     prc,
+		}
+
+		b.wait = noop
+		err := b.Run()
+
+		if err != fakeError {
+			t.Errorf("want fake error, got %v", err)
+			return
+		}
+
+		assertSpyFailure(t, discord, "Open()", fakeError)
+	})
+
+	t.Run("it should not fail on failure on close", func(t *testing.T) {
+		discord := &FakeDiscordClientSpy{}
+		discord.failOnClose = true
+		b := &bot{
+			cfg:     cfg,
+			discord: discord,
+			prc:     prc,
+		}
+
+		b.wait = noop
+		err := b.Run()
+
+		if err != nil {
+			t.Errorf("want not error, got %v", err)
+			return
+		}
+
+		assertSpyFailure(t, discord, "Close()", fakeError)
+	})
+
+	t.Run("it should not fail on failure on addHandler", func(t *testing.T) {
+		discord := &FakeDiscordClientSpy{}
+		discord.failOnAddHandler = true
+		b := &bot{
+			cfg:     cfg,
+			discord: discord,
+			prc:     prc,
+		}
+
+		b.wait = noop
+		err := b.Run()
+
+		if err != nil {
+			t.Errorf("want not error, got %v", err)
+			return
+		}
+
+		assertSpySuccess(t, discord, "Close()")
+	})
+}
+
+func Test_bot_isSelfMessage(t *testing.T) {
+
+	cfg := fakeCfg{}
+	prc := fakeProcessor{}
+
+	discord := &FakeDiscordClientSpy{}
+	discord.failOnClose = true
+	b := &bot{
+		cfg:     cfg,
+		discord: discord,
+		prc:     prc,
+	}
+
+	u := &discordgo.User{ID: "123"}
+	t.Run("should get a self message", func(t *testing.T) {
+		m := &discordgo.MessageCreate{
+			Message: &discordgo.Message{Author: u},
+		}
+		got := b.isSelfMessage(m, u)
+		if got != true {
+			t.Errorf("is should be self message got %v", got)
+		}
+	})
+
+	t.Run("should not get a self message", func(t *testing.T) {
+		m := &discordgo.MessageCreate{
+			Message: &discordgo.Message{Author: &discordgo.User{ID: "456"}},
+		}
+		got := b.isSelfMessage(m, u)
+		if got == true {
+			t.Errorf("is should not be self message got %v", got)
+		}
+	})
+}
+
+func Test_bot_removeBotMention(t *testing.T) {
+
+	cfg := fakeCfg{}
+	prc := fakeProcessor{}
+
+	discord := &FakeDiscordClientSpy{}
+	discord.failOnClose = true
+	b := &bot{
+		cfg:     cfg,
+		discord: discord,
+		prc:     prc,
+	}
+
+	botUser := &discordgo.User{ID: "123"}
+
+	t.Run("we should remove the mention", func(t *testing.T) {
+		m := &discordgo.MessageCreate{
+			Message: &discordgo.Message{
+				Author:  &discordgo.User{ID: "456"},
+				Content: "<@123> this is a message",
+			},
+		}
+
+		got := b.removeBotMention(m, botUser)
+		want := "this is a message"
+
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("we should not remove the mention", func(t *testing.T) {
+		m := &discordgo.MessageCreate{
+			Message: &discordgo.Message{
+				Author:  &discordgo.User{ID: "456"},
+				Content: "<@456> this is a another",
+			},
+		}
+
+		got := b.removeBotMention(m, botUser)
+		want := "<@456> this is a another"
+
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("there is not mention", func(t *testing.T) {
+		m := &discordgo.MessageCreate{
+			Message: &discordgo.Message{
+				Author:  &discordgo.User{ID: "456"},
+				Content: "there is no mention",
+			},
+		}
+
+		got := b.removeBotMention(m, botUser)
+		want := "there is no mention"
+
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+}
+
+func Test_bot_getMessageToBoot(t *testing.T) {
+
+	cfg := fakeCfg{}
+	prc := fakeProcessor{}
+
+	discord := &FakeDiscordClientSpy{}
+	discord.failOnClose = true
+	b := &bot{
+		cfg:     cfg,
+		discord: discord,
+		prc:     prc,
+	}
+
+	botUser := &discordgo.User{ID: "123"}
+
+	t.Run("we should get the message in a mention", func(t *testing.T) {
+		m := &discordgo.MessageCreate{
+			Message: &discordgo.Message{
+				Author:   &discordgo.User{ID: "456"},
+				Content:  "<@123> this is a message",
+				Mentions: []*discordgo.User{botUser},
+			},
+		}
+
+		got := b.getMessageToBoot(m, botUser)
+		want := "this is a message"
+
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+	t.Run("we should not get the message without mention", func(t *testing.T) {
+		m := &discordgo.MessageCreate{
+			Message: &discordgo.Message{
+				Author:   &discordgo.User{ID: "456"},
+				Content:  "this is a message",
+				Mentions: []*discordgo.User{},
+			},
+		}
+
+		got := b.getMessageToBoot(m, botUser)
+		want := ""
+
+		if got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	})
+
+}
+
+func Test_bot_replyToMessage(t *testing.T) {
+
+	cfg := fakeCfg{}
+	prc := fakeProcessor{}
+
+	discord := &FakeDiscordClientSpy{}
+	discord.failOnClose = true
+	b := &bot{
+		cfg:     cfg,
+		discord: discord,
+		prc:     prc,
+	}
+
+	m := &discordgo.MessageCreate{
+		Message: &discordgo.Message{
+			ChannelID: "chanel1",
+			Author:    &discordgo.User{ID: "456"},
+			Content:   "this is a message",
+			Mentions:  []*discordgo.User{},
+		},
+	}
+
+	b.replyToMessage(m, "hello world")
+
+	wantChannel := "chanel1"
+	gotChannel := discord.lastChannelTo
+	if wantChannel != gotChannel {
+		t.Errorf("want message reply to %q, got %q", wantChannel, gotChannel)
+	}
+
+	wantMessage := "<@456> hello world"
+	gotMessage := discord.lastMessage
+	if wantMessage != gotMessage {
+		t.Errorf("want message %q, got %q", wantMessage, gotMessage)
+	}
+}
+
+func Test_getResponseToMessage(t *testing.T) {
+	cfg := fakeCfg{}
+	discord := &FakeDiscordClientSpy{}
+	prc := fakeProcessor{}
+
+	b := &bot{
+		cfg:     cfg,
+		discord: discord,
+		prc:     prc,
+	}
+
+	got := b.getResponseToMessage("hello", "user1")
+	want := "user1 told me : hello"
+
+	if got != want {
+		t.Errorf("want message %q, got %q", want, got)
+	}
+}
+
+func Test_bot_onChannelMessage(t *testing.T) {
+
+	cfg := fakeCfg{}
+	prc := fakeProcessor{}
+
+	discord := &FakeDiscordClientSpy{}
+	discord.failOnClose = true
+	b := &bot{
+		cfg:     cfg,
+		discord: discord,
+		prc:     prc,
+	}
+
+	botUser := &discordgo.User{ID: "123"}
+	sta := discordgo.NewState()
+	sta.User = botUser
+	ses := &discordgo.Session{State: sta}
+
+	m := &discordgo.MessageCreate{
+		Message: &discordgo.Message{
+			ChannelID: "chanel1",
+			Author:    &discordgo.User{ID: "456"},
+			Content:   "<@123> this is a message",
+			Mentions:  []*discordgo.User{botUser},
+		},
+	}
+
+	b.onChannelMessage(ses, m)
+
+	wantChannel := "chanel1"
+	gotChannel := discord.lastChannelTo
+	if wantChannel != gotChannel {
+		t.Errorf("want message reply to %q, got %q", wantChannel, gotChannel)
+	}
+
+	wantMessage := "<@456> 456 told me : this is a message"
+	gotMessage := discord.lastMessage
+	if wantMessage != gotMessage {
+		t.Errorf("want message %q, got %q", wantMessage, gotMessage)
+	}
 }
