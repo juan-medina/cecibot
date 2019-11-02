@@ -13,6 +13,13 @@ import (
 	"syscall"
 )
 
+type discordClient interface {
+	Open() error
+	Close() error
+	AddHandler(interface{}) func()
+	ChannelMessageSend(channelID string, content string) (*discordgo.Message, error)
+}
+
 type Bot interface {
 	Run() error
 }
@@ -21,12 +28,24 @@ var errInvalidDiscordClient = errors.New("invalid discord client")
 
 type bot struct {
 	cfg     config.Config
-	discord *discordgo.Session
+	discord discordClient
 	prc     processor.Processor
 }
 
 func New(cfg config.Config) (Bot, error) {
+	log, _ := zap.NewProduction()
+	defer log.Sync()
+
 	bot := &bot{cfg: cfg, prc: processor.New(cfg)}
+
+	log.Info("Creating discord client.")
+	var discord, err = discordgo.New("Bot " + cfg.GetToken())
+
+	if err != nil {
+		return nil, err
+	}
+
+	bot.discord = discord
 	return bot, nil
 }
 
@@ -36,20 +55,13 @@ func (b *bot) connect() error {
 
 	log.Info("Bot is connecting.")
 
-	log.Info("Creating discord client.")
-	var discord, err = discordgo.New("Bot " + b.cfg.GetToken())
-	if err != nil {
-		return err
-	}
-
 	log.Info("Open connection to discord.")
-	err = discord.Open()
+	err := b.discord.Open()
 	if err != nil {
 		return err
 	}
 
-	b.discord = discord
-	log.Info("Bot is connected", zap.String("user name", discord.State.User.Username))
+	log.Info("Bot is connected")
 
 	return nil
 }
@@ -77,7 +89,7 @@ func (b *bot) disconnect() {
 	log.Info("Bot disconnected.")
 }
 
-func (b bot) waitToSignalClose(){
+func (b bot) waitToSignalClose() {
 	// Wait here until CTRL-C or other term signal is received.
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
@@ -124,19 +136,19 @@ func (b bot) sendMessage(channelID string, text string) {
 	}
 }
 
-func (b bot) isSelfMessage(m *discordgo.MessageCreate) bool {
-	return m.Author.ID == b.discord.State.User.ID
+func (b bot) isSelfMessage(m *discordgo.MessageCreate, botUser *discordgo.User) bool {
+	return m.Author.ID == botUser.ID
 }
 
-func (b bot) removeBotMention(m *discordgo.MessageCreate) string {
-	text := strings.Replace(m.Content, b.discord.State.User.Mention()+" ", "", -1)
+func (b bot) removeBotMention(m *discordgo.MessageCreate, botUser *discordgo.User) string {
+	text := strings.Replace(m.Content, botUser.Mention()+" ", "", -1)
 	return strings.TrimSpace(text)
 }
 
-func (b bot) getMessageToBoot(m *discordgo.MessageCreate) string {
+func (b bot) getMessageToBoot(m *discordgo.MessageCreate, botUser *discordgo.User) string {
 	for _, element := range m.Mentions {
-		if element.ID == b.discord.State.User.ID {
-			return b.removeBotMention(m)
+		if element.ID == botUser.ID {
+			return b.removeBotMention(m, botUser)
 		}
 	}
 	return ""
@@ -151,8 +163,8 @@ func (b bot) getResponseToMessage(text string, author string) string {
 }
 
 func (b bot) onChannelMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if !b.isSelfMessage(m) {
-		if text := b.getMessageToBoot(m); text != "" {
+	if !b.isSelfMessage(m, s.State.User) {
+		if text := b.getMessageToBoot(m, s.State.User); text != "" {
 			if response := b.getResponseToMessage(text, m.Author.ID); response != "" {
 				b.replyToMessage(m, response)
 			}
