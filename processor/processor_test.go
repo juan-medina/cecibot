@@ -36,7 +36,7 @@ func TestDefaultProcessor_ProcessMessage(t *testing.T) {
 	proc := *New()
 	_ = proc.Init(bot)
 
-	help := proc.(*defaultProcessor).help
+	help := proc.(*processorImpl).help
 
 	type testCase struct {
 		name string
@@ -102,7 +102,7 @@ func TestDefaultProcessor_ProcessMessage(t *testing.T) {
 }
 
 func TestDefaultProcessor_parseCommand(t *testing.T) {
-	proc := defaultProcessor{}
+	proc := processorImpl{}
 
 	type testCase struct {
 		name string
