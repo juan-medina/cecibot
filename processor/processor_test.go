@@ -1,6 +1,9 @@
 package processor
 
-import "testing"
+import (
+	"github.com/juan-medina/cecibot/config"
+	"testing"
+)
 
 type fakeCfg struct {
 }
@@ -13,8 +16,21 @@ func (f fakeCfg) GetToken() string {
 	return "12345"
 }
 
+type fakeBot struct {
+	cfg config.Config
+}
+
+func (f fakeBot) GetConfig() config.Config {
+	return f.cfg
+}
+
+func (f fakeBot) Run() error {
+	return nil
+}
+
 func TestDefaultProcessor_ProcessMessage(t *testing.T) {
 	cfg := fakeCfg{}
+	bot := fakeBot{cfg: cfg}
 
 	type testCase struct {
 		name string
@@ -55,7 +71,8 @@ func TestDefaultProcessor_ProcessMessage(t *testing.T) {
 		},
 	}
 
-	proc := defaultProcessor{cfg}
+	proc := defaultProcessor{}
+	_ = proc.Init(bot)
 
 	for _, tt := range cases {
 		got := proc.ProcessMessage(tt.text, tt.user)
@@ -67,4 +84,5 @@ func TestDefaultProcessor_ProcessMessage(t *testing.T) {
 		})
 
 	}
+	proc.End()
 }

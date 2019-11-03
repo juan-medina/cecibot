@@ -1,21 +1,36 @@
 package processor
 
-import "github.com/juan-medina/cecibot/config"
+import (
+	"github.com/juan-medina/cecibot/prototype"
+)
 
 type Processor interface {
 	ProcessMessage(text string, author string) string
+	Init(bot prototype.Bot) error
+	End()
 }
 
 type defaultProcessor struct {
-	cfg config.Config
+	bot   prototype.Bot
+	owner string
 }
 
-func New(cfg config.Config) Processor {
-	return defaultProcessor{cfg: cfg}
+func (p *defaultProcessor) Init(bot prototype.Bot) error {
+	p.bot = bot
+	p.owner = bot.GetConfig().GetOwner()
+	return nil
+}
+
+func (p defaultProcessor) End() {
+}
+
+func New() *Processor {
+	var prc Processor = &defaultProcessor{}
+	return &prc
 }
 
 func (p defaultProcessor) isOwner(author string) bool {
-	return p.cfg.GetOwner() == author
+	return p.owner == author
 }
 func (p defaultProcessor) ProcessMessage(text string, author string) string {
 	if text == "ping" {

@@ -3,6 +3,7 @@ package bot
 import (
 	"errors"
 	"github.com/bwmarrin/discordgo"
+	"github.com/juan-medina/cecibot/prototype"
 	"testing"
 )
 
@@ -123,6 +124,17 @@ func assertSpyFailure(t *testing.T, spy *FakeDiscordClientSpy, method string, er
 }
 
 type fakeProcessor struct {
+	failOnInit bool
+}
+
+func (f *fakeProcessor) Init(bot prototype.Bot) error {
+	if f.failOnInit {
+		return fakeError
+	}
+	return nil
+}
+
+func (f fakeProcessor) End() {
 }
 
 func (f fakeProcessor) ProcessMessage(text string, author string) string {
@@ -142,12 +154,17 @@ func TestNew(t *testing.T) {
 		t.Errorf("want new bot, got nil")
 		return
 	}
+
+	if got.GetConfig() != cfg {
+		t.Errorf("want config %v, got %v", cfg, got.GetConfig())
+		return
+	}
 }
 
 func Test_bot_connect(t *testing.T) {
 	cfg := fakeCfg{}
 	discord := &FakeDiscordClientSpy{}
-	prc := fakeProcessor{}
+	prc := &fakeProcessor{}
 
 	b := &bot{
 		cfg:     cfg,
@@ -183,6 +200,17 @@ func Test_bot_connect(t *testing.T) {
 		assertSpyFailure(t, discord, "Open()", fakeError)
 	})
 
+	t.Run("it should fail with failing processor", func(t *testing.T) {
+		prc.failOnInit = true
+		err := b.connect()
+
+		if err != fakeError {
+			t.Errorf("want fake error, got %v", err)
+			return
+		}
+		prc.failOnInit = false
+	})
+
 	t.Run("it should fail without client", func(t *testing.T) {
 		b.discord = nil
 		err := b.connect()
@@ -197,7 +225,7 @@ func Test_bot_connect(t *testing.T) {
 func Test_bot_disconnect(t *testing.T) {
 	cfg := fakeCfg{}
 	discord := &FakeDiscordClientSpy{}
-	prc := fakeProcessor{}
+	prc := &fakeProcessor{}
 
 	b := &bot{
 		cfg:     cfg,
@@ -227,7 +255,7 @@ func Test_bot_disconnect(t *testing.T) {
 func Test_bot_sendMessage(t *testing.T) {
 	cfg := fakeCfg{}
 	discord := &FakeDiscordClientSpy{}
-	prc := fakeProcessor{}
+	prc := &fakeProcessor{}
 
 	b := &bot{
 		cfg:     cfg,
@@ -253,7 +281,7 @@ func Test_bot_sendMessage(t *testing.T) {
 func Test_bot_Run(t *testing.T) {
 	noop := func() {}
 	cfg := fakeCfg{}
-	prc := fakeProcessor{}
+	prc := &fakeProcessor{}
 
 	t.Run("it should not fail", func(t *testing.T) {
 		discord := &FakeDiscordClientSpy{}
@@ -337,7 +365,7 @@ func Test_bot_Run(t *testing.T) {
 func Test_bot_isSelfMessage(t *testing.T) {
 
 	cfg := fakeCfg{}
-	prc := fakeProcessor{}
+	prc := &fakeProcessor{}
 
 	discord := &FakeDiscordClientSpy{}
 	discord.failOnClose = true
@@ -372,7 +400,7 @@ func Test_bot_isSelfMessage(t *testing.T) {
 func Test_bot_removeBotMention(t *testing.T) {
 
 	cfg := fakeCfg{}
-	prc := fakeProcessor{}
+	prc := &fakeProcessor{}
 
 	discord := &FakeDiscordClientSpy{}
 	discord.failOnClose = true
@@ -437,7 +465,7 @@ func Test_bot_removeBotMention(t *testing.T) {
 func Test_bot_getMessageToBoot(t *testing.T) {
 
 	cfg := fakeCfg{}
-	prc := fakeProcessor{}
+	prc := &fakeProcessor{}
 
 	discord := &FakeDiscordClientSpy{}
 	discord.failOnClose = true
@@ -488,7 +516,7 @@ func Test_bot_getMessageToBoot(t *testing.T) {
 func Test_bot_replyToMessage(t *testing.T) {
 
 	cfg := fakeCfg{}
-	prc := fakeProcessor{}
+	prc := &fakeProcessor{}
 
 	discord := &FakeDiscordClientSpy{}
 	discord.failOnClose = true
@@ -525,7 +553,7 @@ func Test_bot_replyToMessage(t *testing.T) {
 func Test_getResponseToMessage(t *testing.T) {
 	cfg := fakeCfg{}
 	discord := &FakeDiscordClientSpy{}
-	prc := fakeProcessor{}
+	prc := &fakeProcessor{}
 
 	b := &bot{
 		cfg:     cfg,
@@ -544,7 +572,7 @@ func Test_getResponseToMessage(t *testing.T) {
 func Test_bot_onChannelMessage(t *testing.T) {
 
 	cfg := fakeCfg{}
-	prc := fakeProcessor{}
+	prc := &fakeProcessor{}
 
 	discord := &FakeDiscordClientSpy{}
 	discord.failOnClose = true

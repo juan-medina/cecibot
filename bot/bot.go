@@ -6,6 +6,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/juan-medina/cecibot/config"
 	"github.com/juan-medina/cecibot/processor"
+	"github.com/juan-medina/cecibot/prototype"
 	"go.uber.org/zap"
 	"os"
 	"os/signal"
@@ -20,10 +21,6 @@ type discordClient interface {
 	ChannelMessageSend(channelID string, content string) (*discordgo.Message, error)
 }
 
-type Bot interface {
-	Run() error
-}
-
 var errInvalidDiscordClient = errors.New("invalid discord client")
 
 type waitFunc func()
@@ -35,11 +32,15 @@ type bot struct {
 	wait    waitFunc
 }
 
-func New(cfg config.Config) (Bot, error) {
+func (b *bot) GetConfig() config.Config {
+	return b.cfg
+}
+
+func New(cfg config.Config) (prototype.Bot, error) {
 	log, _ := zap.NewProduction()
 	defer log.Sync()
 
-	bot := &bot{cfg: cfg, prc: processor.New(cfg)}
+	bot := &bot{cfg: cfg, prc: *processor.New()}
 
 	log.Info("Creating discord client.")
 	var discord, err = discordgo.New("Bot " + cfg.GetToken())
@@ -57,23 +58,27 @@ func (b *bot) connect() error {
 	log, _ := zap.NewProduction()
 	defer log.Sync()
 
-	log.Info("Bot is connecting.")
-
-	log.Info("Open connection to discord.")
-
 	var err error
 
+	log.Info("Init processor.")
+	err = b.prc.Init(b)
+	if err != nil {
+		return err
+	}
+
+	log.Info("Bot is connecting.")
 	if b.discord == nil {
 		err = errInvalidDiscordClient
 		return err
-	} else {
-		err = b.discord.Open()
-		if err != nil {
-			return err
-		}
 	}
 
-	log.Info("Bot is connected")
+	log.Info("Open connection to discord.")
+	err = b.discord.Open()
+	if err != nil {
+		return err
+	}
+
+	log.Info("Bot is connected.")
 
 	return nil
 }
@@ -98,6 +103,8 @@ func (b *bot) disconnect() {
 		return
 	}
 
+	log.Info("End processor")
+	b.prc.End()
 	log.Info("Bot disconnected.")
 }
 
