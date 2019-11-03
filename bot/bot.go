@@ -28,7 +28,7 @@ type waitFunc func()
 type bot struct {
 	cfg     config.Config
 	discord discordClient
-	prc     processor.Processor
+	prc     prototype.Processor
 	wait    waitFunc
 }
 

@@ -36,8 +36,7 @@ func TestDefaultProcessor_ProcessMessage(t *testing.T) {
 	proc := *New()
 	_ = proc.Init(bot)
 
-	help := proc.(*processorImpl).help
-
+	help := proc.GetHelp()
 	type testCase struct {
 		name string
 		text string

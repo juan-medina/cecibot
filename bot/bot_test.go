@@ -18,17 +18,6 @@ func (f fakeCfg) GetToken() string {
 	return "12345"
 }
 
-type badCfg struct {
-}
-
-func (b badCfg) GetOwner() string {
-	return ""
-}
-
-func (b badCfg) GetToken() string {
-	return ""
-}
-
 var fakeError = errors.New("fake error")
 
 type FakeDiscordClientSpy struct {
@@ -125,6 +114,18 @@ func assertSpyFailure(t *testing.T, spy *FakeDiscordClientSpy, method string, er
 
 type fakeProcessor struct {
 	failOnInit bool
+}
+
+func (f *fakeProcessor) IsOwner(userId string) bool {
+	return false
+}
+
+func (f *fakeProcessor) GetCommandHelp(key string) string {
+	return ""
+}
+
+func (f *fakeProcessor) GetHelp() string {
+	return ""
 }
 
 func (f *fakeProcessor) Init(bot prototype.Bot) error {

@@ -2,57 +2,37 @@ package processor
 
 import (
 	"fmt"
+	"github.com/juan-medina/cecibot/commands"
 	"github.com/juan-medina/cecibot/prototype"
 	"strings"
 	"unicode"
 )
 
-type Processor interface {
-	ProcessMessage(text string, author string) string
-	Init(bot prototype.Bot) error
-	End()
-}
-type commandFunction func(args []string, author string) string
-type command struct {
-	key  string
-	desc string
-	fun  commandFunction
-	help string
-}
-
 type processorImpl struct {
 	bot      prototype.Bot
 	owner    string
-	commands map[string]command
+	commands prototype.CommandsMap
 	help     string
 }
 
-type createCommandFun func(p *processorImpl) *command
-type CommandProvider interface {
-	getCommands() []createCommandFun
-}
-
-func (p *processorImpl) AddCommand(fun createCommandFun) {
-	cmd := fun(p)
-	p.commands[cmd.key] = *cmd
+func (p *processorImpl) AddCommand(cmd *prototype.Command) {
+	p.commands[cmd.Key] = cmd
 }
 
 func (p *processorImpl) generateHelp() {
 	help := "Available commands are:"
 	for key, cmd := range p.commands {
-		help += fmt.Sprintf("\n\t **%s** : %q", key, cmd.desc)
+		help += fmt.Sprintf("\n\t **%s** : %q", key, cmd.Desc)
 	}
 	help += "\n\nTo get help on any *command* send:\n\t**help** *command*"
 	p.help = help
 
 }
 
-func (p *processorImpl) addCommands(provider CommandProvider) {
-	for _, cmdFun := range provider.getCommands() {
-		p.AddCommand(cmdFun)
+func (p *processorImpl) addCommands(provider prototype.Provider) {
+	for _, cmd := range *provider.GetCommands() {
+		p.AddCommand(cmd)
 	}
-
-	p.generateHelp()
 }
 
 func (p *processorImpl) configure() {
@@ -63,8 +43,12 @@ func (p *processorImpl) Init(bot prototype.Bot) error {
 	p.bot = bot
 
 	p.configure()
-	p.addCommands(SystemCommands())
-	p.addCommands(DefaultCommands())
+
+	for _, prov := range commands.New(p) {
+		p.addCommands(prov)
+	}
+
+	p.generateHelp()
 
 	return nil
 }
@@ -72,13 +56,25 @@ func (p *processorImpl) Init(bot prototype.Bot) error {
 func (p processorImpl) End() {
 }
 
-func New() *Processor {
-	var prc Processor = &processorImpl{commands: make(map[string]command)}
+func New() *prototype.Processor {
+	var prc prototype.Processor = &processorImpl{commands: make(prototype.CommandsMap)}
 	return &prc
 }
 
-func (p processorImpl) isOwner(author string) bool {
+func (p processorImpl) IsOwner(author string) bool {
 	return p.owner == author
+}
+
+func (p processorImpl) GetCommandHelp(key string) string {
+	cmd, found := p.commands[key]
+	if found {
+		return cmd.Help
+	}
+	return ""
+}
+
+func (p processorImpl) GetHelp() string {
+	return p.help
 }
 
 func (p processorImpl) parseCommand(text string) (key string, args []string) {
@@ -132,7 +128,7 @@ func (p processorImpl) ProcessMessage(text string, author string) string {
 	key, args := p.parseCommand(text)
 	cmd, found := p.commands[key]
 	if found {
-		return cmd.fun(args, author)
+		return cmd.Fun(args, author)
 	}
 
 	return "Unknown command. " + p.help
