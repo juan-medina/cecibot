@@ -1,6 +1,9 @@
 package prototype
 
-import "github.com/juan-medina/cecibot/config"
+import (
+	"github.com/juan-medina/cecibot/commands/raid/data/entities"
+	"github.com/juan-medina/cecibot/config"
+)
 
 type Bot interface {
 	Run() error
@@ -31,4 +34,10 @@ type Provider interface {
 	GetCommands() *CommandsMap
 	AddCommand(cmd *Command)
 	GetProcessor() Processor
+}
+
+type RaidDataProvider interface {
+	AddOfficer(id string)
+	DeleteOfficer(id string)
+	GetOfficers() []entities.Officer
 }
