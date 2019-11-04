@@ -4,6 +4,7 @@ import (
 	"github.com/juan-medina/cecibot/command"
 	"github.com/juan-medina/cecibot/command/provider"
 	"github.com/juan-medina/cecibot/prototype"
+	"go.uber.org/zap"
 )
 
 type basicCommands struct {
@@ -22,6 +23,10 @@ func (d basicCommands) hello(args []string, author string) string {
 }
 
 func New(p prototype.Processor) prototype.Provider {
+	log, _ := zap.NewProduction()
+	defer log.Sync()
+
+	log.Info("Creating basic commands")
 	var prov = basicCommands{BaseProvider: provider.New(p)}
 
 	prov.AddCommand(command.New("ping",
@@ -35,5 +40,6 @@ func New(p prototype.Processor) prototype.Provider {
 		prov.hello),
 	)
 
+	log.Info("Basic commands created", zap.Int("number of commands", len(*prov.GetCommands())))
 	return prov
 }

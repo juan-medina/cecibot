@@ -5,6 +5,7 @@ import (
 	"github.com/juan-medina/cecibot/command"
 	"github.com/juan-medina/cecibot/command/provider"
 	"github.com/juan-medina/cecibot/prototype"
+	"go.uber.org/zap"
 )
 
 type systemCommands struct {
@@ -26,6 +27,10 @@ func (d systemCommands) help(args []string, author string) string {
 }
 
 func New(p prototype.Processor) prototype.Provider {
+	log, _ := zap.NewProduction()
+	defer log.Sync()
+
+	log.Info("Creating system commands")
 	var prov = systemCommands{BaseProvider: provider.New(p)}
 
 	prov.AddCommand(command.New("help",
@@ -34,5 +39,6 @@ func New(p prototype.Processor) prototype.Provider {
 		prov.help),
 	)
 
+	log.Info("System commands created", zap.Int("number of commands", len(*prov.GetCommands())))
 	return prov
 }

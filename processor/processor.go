@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/juan-medina/cecibot/commands"
 	"github.com/juan-medina/cecibot/prototype"
+	"go.uber.org/zap"
 	"strings"
 	"unicode"
 )
@@ -40,20 +41,34 @@ func (p *processorImpl) configure() {
 }
 
 func (p *processorImpl) Init(bot prototype.Bot) error {
+	log, _ := zap.NewProduction()
+	defer log.Sync()
+
+	log.Info("Processor initialising.")
+
 	p.bot = bot
 
+	log.Info("Configuring processor.")
 	p.configure()
 
+	log.Info("Adding commands.")
 	for _, prov := range commands.New(p) {
 		p.addCommands(prov)
 	}
+	log.Info("Commands added.", zap.Int("number of commands", len(p.commands)))
 
+	log.Info("Generating commands help.")
 	p.generateHelp()
 
+	log.Info("Processor initialised.")
 	return nil
 }
 
 func (p processorImpl) End() {
+	log, _ := zap.NewProduction()
+	defer log.Sync()
+
+	log.Info("Processor end.")
 }
 
 func New() *prototype.Processor {
