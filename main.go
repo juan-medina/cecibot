@@ -8,7 +8,7 @@ import (
 
 func main() {
 
-	log,_ := zap.NewProduction()
+	log, _ := zap.NewProduction()
 	defer log.Sync()
 
 	log.Info("Reading config.")

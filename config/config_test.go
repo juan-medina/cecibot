@@ -28,7 +28,7 @@ func (f ErrorOnKeyProvider) getConfigValue(key string) (string, error) {
 func TestFromProvider(t *testing.T) {
 	var tests = []struct {
 		name      string
-		provider Provider
+		provider  Provider
 		wantToken string
 		wantOwner string
 		wantErr   error
